@@ -1,0 +1,209 @@
+//what do the payment module look like?
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Payment])],
+  controllers: [PaymentController],
+  providers: [PaymentService],
+})
+export class PaymentModule {}
+
+//what the controller look like?
+
+@Auth(AuthType.None)
+@Controller('payment')
+export class PaymentController {
+  constructor(private readonly paymentService: PaymentService) {}
+
+  @Post('/khalti-pay')
+  initiateKhaltiPay(@Body() initiatePaymentDto: InitiatePaymentDto) {
+    return this.paymentService.initiateKhaltiPay(initiatePaymentDto);
+  }
+
+  @Get('/khalti-callback')
+  async verifyKhaltiPayment(@Query() khaltiTransactionResponse: any) {
+    const result = await this.paymentService.verifyKhaltiPay(
+      khaltiTransactionResponse,
+    );
+
+    let redirectUrl = 'http://localhost:3001/payment/success';
+
+    switch (result.status) {
+      case 'Pending':
+        redirectUrl = 'http://localhost:3001/payment/pending';
+        break;
+      case 'Initiated':
+        redirectUrl = 'http://localhost:3001/payment/initiated';
+        break;
+      case 'Refunded':
+        redirectUrl = 'http://localhost:3001/payment/refunded';
+        break;
+      case 'Expired':
+        redirectUrl = 'http://localhost:3001/payment/expired';
+        break;
+      case 'User canceled':
+        redirectUrl = 'http://localhost:3001/payment/cancelled';
+        break;
+      default:
+        redirectUrl = 'http://localhost:3001/payment/success';
+        break;
+    }
+
+    return { url: redirectUrl, statusCode: 302 };
+  }
+}
+
+//the service?
+
+@Injectable()
+export class PaymentService {
+  constructor(
+    private readonly khaltiPayService: KhaltiPayService,
+    private readonly dataSource: DataSource,
+  ) {}
+
+  async initiateKhaltiPay(initiatePaymentDto: InitiatePaymentDto) {
+    let newPayment: Payment | undefined;
+    const paymentRepository = this.dataSource.getRepository(Payment);
+    const [result, error] = await safeError(
+      runInTransaction(async (manager: EntityManager) => {
+        const transactionUuid = generatePaymentUUID();
+        const paymentInstance = Object.assign(new Payment(), {
+          transactionUuid,
+          ...initiatePaymentDto,
+          gateway: PaymentGateway.KHALTI,
+          status: PaymentStatus.PENDING,
+        });
+
+        const payment = manager.create(Payment, paymentInstance);
+        newPayment = await manager.save(Payment, payment);
+
+        const khaltiPayInitData = {
+          amount: initiatePaymentDto.amount * 100,
+          purchase_order_id: transactionUuid,
+          purchase_order_name: 'something beautiful',
+        };
+        return { newPayment, khaltiPayInitData };
+      }),
+    );
+    if (error) {
+      throw error;
+    }
+
+    const [response, _error] = await safeError(
+      this.khaltiPayService.initiate(result.khaltiPayInitData),
+    );
+
+    if (_error) {
+      if (_error instanceof BadGatewayException)
+        throw new BadGatewayException(_error.message);
+      else if (_error instanceof BadRequestException)
+        throw new BadRequestException(_error.message);
+      else
+        throw new InternalServerErrorException(
+          `Error while initiating khalti payment.`,
+        );
+    }
+
+    if (!result.newPayment) {
+      throw new InternalServerErrorException('Payment initialization failed.');
+    }
+
+    result.newPayment.status = PaymentStatus.INITIATED;
+    await paymentRepository.save(result.newPayment);
+    return response;
+  }
+
+  async verifyKhaltiPay(khaltiTransactionResponse: any) {
+    let { pidx, transaction_id, total_amount, status, refunded } =
+      khaltiTransactionResponse;
+    transaction_id = transaction_id === '' ? null : transaction_id;
+    const verificationResponse =
+      await this.khaltiPayService.verifyKhaltiPayment(pidx);
+    const {
+      pidx: v_pidx,
+      total_amount: v_total_amount,
+      status: v_status,
+      transaction_id: v_transaction_id,
+      refunded: v_refunded,
+    } = verificationResponse;
+
+    if (
+      pidx !== v_pidx ||
+      transaction_id !== v_transaction_id ||
+      +total_amount !== v_total_amount
+    )
+      throw new ConflictException(
+        `Incomming informations and verification information from khalti mismatch.`,
+      );
+
+    return {
+      status: v_status,
+    };
+  }
+}
+
+
+//the dto for the payment initiation?
+export class InitiatePaymentDto {
+  @Transform(({ value }) => {
+    if (typeof value == 'string' && value.trim() == '') return value;
+    const number = Number(value);
+    return isNaN(number) ? value : number;
+  })
+  @IsNotEmpty({ message: `Product amount is required.` })
+  @IsNumber()
+  @Min(10, { message: `Amount can not be less than Rs. 10.` })
+  amount: number;
+
+  //add information required about the product user is paying for.
+}
+
+//the entity reference?
+@Entity()
+export class Payment extends CommonEntity {
+  @Column()
+  transactionUuid: string;
+
+  @Column()
+  amount: number;
+
+  @Column({ type: 'enum', enum: PaymentGateway })
+  gateway: PaymentGateway;
+
+  @Column({ type: 'enum', enum: PaymentStatus })
+  status: PaymentStatus;
+
+  //add user information or user relation to the entity.
+  //add information required about the product user is paying for.
+}
+
+//any required enums and helper functions?
+
+//enums
+
+export enum PaymentGateway {
+  KHALTI = 'khalti',
+  ESEWA = 'esewa',
+  CONNECTIPS = 'connectips',
+}
+
+export enum PaymentStatus {
+  COMPLETED = 'completed',
+  PENDING = 'pending',
+  INITIATED = 'initiated',
+  REFUNDED = 'refunded',
+  EXPIRED = 'expired',
+  CANCELLED = 'cancelled',
+}
+
+//helper functions
+
+export const generatePaymentUUID = (): string => {
+  const timestamp = Date.now();
+  return `Payment - ${timestamp}`;
+};
+
+//you can return uuid including different data related to the current payment being done
+//for an example : RECRUIT-${vacancyId}-${applicationId}-${userId}-${timestamp}
+
+
