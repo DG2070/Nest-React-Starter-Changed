@@ -6,41 +6,39 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { safeError } from 'src/common/helper-functions/safe-error.helper';
-import { SignUpDto } from '../user/dto/sign-up.dto';
 import { ConfigType } from '@nestjs/config';
-import { HashingService } from 'src/common/helper-modules/hashing/hashing.service';
 import { JwtService } from '@nestjs/jwt';
-import { runInTransaction } from 'src/common/helper-functions/transaction.helper';
-import { EntityManager, In, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { SignInDto } from './dtos/sign-in.dto';
 import { randomUUID } from 'crypto';
-import { RefreshTokenDto } from './dtos/refresh-token.dto';
-import { ActiveUserData } from './interfaces/active-user-data.interfce';
-import { SignUpUserDto } from '../user/dto/sign-up-user.dto';
-import { jwtConfig } from 'src/configurations/jwt.config';
-import { User } from 'src/user/entities/user.entity';
-import { Role } from 'src/role/entities/role.entity';
-import { EmailService } from 'src/common/helper-modules/mailing/mailing.service';
-import { loginOTPTemplate } from 'src/common/helper-modules/mailing/html-as-constants/login-otp-email';
-import { GetSignInOTPDto } from './dtos/get-login.otp';
-import { getRandomInt } from 'src/common/helper-functions/random-integers.helper';
-import { OTPLoginDto } from './dtos/otp-login.dto';
 import {
   InvalidOTPException,
   InvalidTokenException,
 } from 'src/common/errors/esewa-payment-gateway.errors';
+import { getRandomInt } from 'src/common/helper-functions/random-integers.helper';
+import { HashingService } from 'src/common/helper-modules/hashing/hashing.service';
+import { loginOTPTemplate } from 'src/common/helper-modules/mailing/html-as-constants/login-otp-email';
+import { EmailService } from 'src/common/helper-modules/mailing/mailing.service';
+import { RedisStorageService } from 'src/common/helper-modules/redis/redis-storage.service';
+import { jwtConfig } from 'src/configurations/jwt.config';
+import { User } from 'src/user/entities/user.entity';
 import {
   REDIS_REFRESH_TOKEN_KEY_PART,
   REDIS_SIGN_IN_OTP_KEY_PART,
 } from './constants/auth-constants';
-import { RedisStorageService } from 'src/common/helper-modules/redis/redis-storage.service';
+import { GetSignInOTPDto } from './dtos/get-login.otp';
+import { OTPLoginDto } from './dtos/otp-login.dto';
+import { RefreshTokenDto } from './dtos/refresh-token.dto';
+import { SignInDto } from './dtos/sign-in.dto';
+import { ActiveUserData } from './interfaces/active-user-data.interfce';
+import { Repository } from 'typeorm';
+import { Role } from 'src/role/entities/role.entity';
+import { safeError } from 'src/common/helper-functions/safe-error.helper';
 
 @Injectable()
 export class AuthenticationService {
   constructor(
     @InjectRepository(User) private readonly usersRepository: Repository<User>,
+    @InjectRepository(Role) private readonly rolesRepository: Repository<Role>,
     private readonly hashingService: HashingService,
     private readonly jwtService: JwtService,
     @Inject(jwtConfig.KEY)
@@ -58,7 +56,7 @@ export class AuthenticationService {
     if (!user) throw new UnauthorizedException(`User does not exist.`);
     const isEqual = await this.hashingService.compare(
       signInDto.password,
-      user.password,
+      user.password!,
     );
     if (!isEqual) {
       throw new UnauthorizedException(`Password does not match.`);
@@ -154,6 +152,66 @@ export class AuthenticationService {
     };
   }
 
+  async handleGoogleLogin(googleUser: {
+    email: string;
+    name: string;
+    provider: string;
+    providerId: string;
+  }) {
+    const [regularRole, _error] = await safeError(
+      this.rolesRepository.findOne({
+        where: { name: 'regular' },
+      }),
+    );
+
+    if (_error)
+      throw new InternalServerErrorException(
+        `Error getting role to assign to the new user.`,
+      );
+
+    if (!regularRole)
+      throw new NotFoundException(
+        'You can not sign up now. Let the developers fix this issue.',
+      );
+
+    let user: User | null = await this.usersRepository.findOne({
+      where: { email: googleUser.email },
+    });
+
+    if (!user) {
+      user = this.usersRepository.create({
+        email: googleUser.email,
+        name: googleUser.name,
+        password: null,
+        authProvider: 'google',
+        providerId: googleUser.providerId,
+        roles: [regularRole],
+      });
+
+      user = await this.usersRepository.save(user);
+    }
+
+    if (!user.authProvider && !user.providerId) {
+      user.authProvider = 'google';
+      user.providerId = googleUser.providerId;
+      await this.usersRepository.save(user);
+    }
+
+    if (
+      user.authProvider === 'google' &&
+      user.providerId !== googleUser.providerId
+    ) {
+      throw new Error('Account conflict');
+    }
+
+    const theUser = await this.usersRepository.findOne({
+      where: { email: user.email! },
+      relations: ['roles'],
+    });
+
+    return await this.generateTokens(user);
+  }
+
   async generateTokens(user: User) {
     const refreshTokenId = randomUUID();
     const [accessToken, refreshToken] = await Promise.all([
@@ -162,7 +220,7 @@ export class AuthenticationService {
         this.jwtConfiguration.accessTokenTtl,
         this.jwtConfiguration.secret!,
         // { email: user.email, role: user.role } this was for Roles Guard
-        { email: user.email, roles: user.roles.map((role) => role.name) },
+        { email: user.email!, roles: user.roles.map((role) => role.name) },
       ),
       this.signToken(
         user.id,

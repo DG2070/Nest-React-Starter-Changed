@@ -13,6 +13,8 @@ import { redisConfig } from 'src/configurations/redis.config';
 import { User } from 'src/user/entities/user.entity';
 import { Role } from 'src/role/entities/role.entity';
 import { PasswordService } from './password.service';
+import { GoogleStrategy } from './strategies/google.strategy';
+import { PassportModule } from '@nestjs/passport';
 
 @Module({
   imports: [
@@ -20,6 +22,7 @@ import { PasswordService } from './password.service';
     JwtModule.registerAsync(jwtConfig.asProvider()),
     ConfigModule.forFeature(jwtConfig),
     ConfigModule.forFeature(redisConfig),
+    PassportModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthenticationGuard },
@@ -29,6 +32,7 @@ import { PasswordService } from './password.service';
     AuthenticationGuard,
     AuthenticationService,
     PasswordService,
+    GoogleStrategy,
   ],
   controllers: [AuthenticationController],
 })

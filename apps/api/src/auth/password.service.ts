@@ -5,25 +5,25 @@ import {
   InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigType } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { InvalidOTPException } from 'src/common/errors/esewa-payment-gateway.errors';
+import { getRandomInt } from 'src/common/helper-functions/random-integers.helper';
+import { HashingService } from 'src/common/helper-modules/hashing/hashing.service';
+import { resetPasswordOTP } from 'src/common/helper-modules/mailing/html-as-constants/reset-password-otp';
+import { EmailService } from 'src/common/helper-modules/mailing/mailing.service';
+import { RedisStorageService } from 'src/common/helper-modules/redis/redis-storage.service';
+import { jwtConfig } from 'src/configurations/jwt.config';
+import { User } from 'src/user/entities/user.entity';
+import { Repository } from 'typeorm';
+import { AuthenticationService } from './authentication.service';
+import { REDIS_RESET_PASSWORD_OTP_KEY_PART } from './constants/auth-constants';
+import { ChangePasswordDto } from './dtos/change-password.otp';
 import { ResetForgottenPasswordDto } from './dtos/request-reset-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { ValidateResetPasswordOTPDto } from './dtos/validate-reset-password-otp.dto';
-import { InjectRepository } from '@nestjs/typeorm';
-import { User } from 'src/user/entities/user.entity';
-import { Repository } from 'typeorm';
-import { HashingService } from 'src/common/helper-modules/hashing/hashing.service';
-import { JwtService } from '@nestjs/jwt';
-import { jwtConfig } from 'src/configurations/jwt.config';
-import { ConfigType } from '@nestjs/config';
-import { EmailService } from 'src/common/helper-modules/mailing/mailing.service';
-import { InvalidOTPException } from 'src/common/errors/esewa-payment-gateway.errors';
-import { getRandomInt } from 'src/common/helper-functions/random-integers.helper';
-import { AuthenticationService } from './authentication.service';
-import { ChangePasswordDto } from './dtos/change-password.otp';
 import { ActiveUserData } from './interfaces/active-user-data.interfce';
-import { resetPasswordOTP } from 'src/common/helper-modules/mailing/html-as-constants/reset-password-otp';
-import { RedisStorageService } from 'src/common/helper-modules/redis/redis-storage.service';
-import { REDIS_RESET_PASSWORD_OTP_KEY_PART } from './constants/auth-constants';
 
 @Injectable()
 export class PasswordService {
@@ -53,7 +53,7 @@ export class PasswordService {
       );
     const existingPasswordMatch = await this.hashingService.compare(
       changePasswordDto.existingPassword,
-      user.password,
+      user.password!,
     );
     if (!existingPasswordMatch) {
       throw new UnauthorizedException(`Old password does not match.`);
@@ -61,7 +61,7 @@ export class PasswordService {
 
     const matchWithPreviousPassword = await this.hashingService.compare(
       changePasswordDto.newPassword,
-      user.password,
+      user.password!,
     );
 
     if (matchWithPreviousPassword)
@@ -96,7 +96,7 @@ export class PasswordService {
       );
     const existingPasswordMatch = await this.hashingService.compare(
       resetPasswordDto.password,
-      user.password,
+      user.password!,
     );
     if (existingPasswordMatch) {
       throw new ConflictException(
@@ -195,7 +195,7 @@ export class PasswordService {
     );
 
     await this.emailService.sendMail(
-      user.email,
+      user.email!,
       `Nest-react-starter reset password OTP`,
       resetPasswordOTP,
       { name: resetForgottenPasswordDto.email.split('@')[0], otp: otp },

@@ -5,23 +5,20 @@ import { Column, Entity, ManyToMany } from 'typeorm';
 
 @Entity()
 export class User extends CommonEntity {
-  // @Column({ nullable: true })
-  // firstName: string;
+  @Column({ type: 'varchar', nullable: true })
+  name: string | null;
 
-  // @Column({ nullable: true })
-  // middileName: string;
+  @Column({ type: 'varchar', unique: true, nullable: true })
+  email: string | null;
 
-  // @Column({ nullable: true })
-  // lastName: string;
+  @Column({ type: 'varchar', nullable: true })
+  password: string | null;
 
-  // @Column()
-  // phoneNumber: string;
+  @Column({ type: 'varchar', nullable: true })
+  authProvider: 'local' | 'google' | null;
 
-  @Column({ unique: true })
-  email: string;
-
-  @Column()
-  password: string;
+  @Column({ type: 'varchar', nullable: true })
+  providerId: string | null;
 
   //this was for Role Guard
   // @Column({ enum: Role, default: Role.Regular })
