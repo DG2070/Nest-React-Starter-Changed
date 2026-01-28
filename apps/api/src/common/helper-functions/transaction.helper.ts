@@ -1,12 +1,12 @@
 import { Logger } from '@nestjs/common';
-import { AppDataSource } from 'src/database/data-source-initialization';
 import { DataSource, EntityManager } from 'typeorm';
 
 export async function runInTransaction<T>(
+  dataSource:  DataSource,
   operation: (manager: EntityManager) => Promise<T>,
 ): Promise<T> {
   const logger = new Logger('Transaction');
-  const queryRunner = AppDataSource.createQueryRunner();
+  const queryRunner = dataSource.createQueryRunner();
 
   await queryRunner.connect();
   await queryRunner.startTransaction();

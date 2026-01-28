@@ -1,20 +1,26 @@
-import { SelectQueryBuilder, ObjectLiteral } from 'typeorm';
+import { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 
 export function applySearch<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   searchTerm: string,
-  searchableFields: string[], // format: ["alias.field", "alias2.field2"]
+  searchableFields: string[],
+  alias: string,
 ) {
   if (!searchTerm || searchableFields.length === 0) return qb;
 
-  const conditions = searchableFields.map((field) => {
-    // cast numeric columns to text for ILIKE
-    return `CAST(${field} AS TEXT) ILIKE :search`;
+  const conditions = searchableFields.map((field, index) => {
+    return `CAST(${alias}.${field} AS CHAR) LIKE :search${index}`;
   });
 
-  qb.andWhere(`(${conditions.join(' OR ')})`, {
-    search: `%${searchTerm}%`,
-  });
+  const params = searchableFields.reduce(
+    (acc, _, index) => {
+      acc[`search${index}`] = `%${searchTerm}%`;
+      return acc;
+    },
+    {} as Record<string, string>,
+  );
+
+  qb.andWhere(`(${conditions.join(' OR ')})`, params);
 
   return qb;
 }

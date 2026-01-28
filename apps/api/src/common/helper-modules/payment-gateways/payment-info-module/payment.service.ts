@@ -42,7 +42,7 @@ export class PaymentService {
     const { amount } = initiatePaymentDto;
     let newPayment: Payment | undefined;
     const [result, error] = await safeError(
-      runInTransaction(async (manager: EntityManager) => {
+      runInTransaction(this.dataSource, async (manager: EntityManager) => {
         const transactionUuid = generatePaymentUUID();
         const paymentInstance = Object.assign(new Payment(), {
           transactionUuid,
@@ -157,7 +157,7 @@ export class PaymentService {
     let newPayment: Payment | undefined;
     const paymentRepository = this.dataSource.getRepository(Payment);
     const [result, error] = await safeError(
-      runInTransaction(async (manager: EntityManager) => {
+      runInTransaction(this.dataSource, async (manager: EntityManager) => {
         const transactionUuid = generatePaymentUUID();
 
         //product code should be received from frontend

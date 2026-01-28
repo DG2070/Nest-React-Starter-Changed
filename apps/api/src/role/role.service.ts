@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { isEqual, omit } from 'lodash';
 import { safeError } from 'src/common/helper-functions/safe-error.helper';
 import { runInTransaction } from 'src/common/helper-functions/transaction.helper';
-import { EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { Role } from './entities/role.entity';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -21,12 +21,13 @@ import { Permission } from 'src/permission/entities/permission.entity';
 export class RoleService {
   constructor(
     @InjectRepository(Role) private readonly roleRepository: Repository<Role>,
+    private readonly dataSource: DataSource,
   ) {}
   async create(
     createRoleDto: CreateRoleDto,
   ): Promise<{ success: boolean; message: string }> {
     const [message, error] = await safeError(
-      runInTransaction(async (manager: EntityManager) => {
+      runInTransaction(this.dataSource, async (manager: EntityManager) => {
         const roleRepository = manager.getRepository(Role);
 
         const permissionInstances = await this.getPermissionInstances(
@@ -127,7 +128,7 @@ export class RoleService {
     updateRoleDto: UpdateRoleDto,
   ): Promise<UpdatedInterface> {
     const [message, error] = await safeError(
-      runInTransaction(async (manager: EntityManager) => {
+      runInTransaction(this.dataSource, async (manager: EntityManager) => {
         const roleRepository = manager.getRepository(Role);
         const existingRole = await this.findOne(id, manager);
         const existingPermissionIds = existingRole.permissions.map(

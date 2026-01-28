@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { SignUpDto } from './dto/sign-up.dto';
 import { runInTransaction } from 'src/common/helper-functions/transaction.helper';
-import { EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { safeError } from 'src/common/helper-functions/safe-error.helper';
 import { Role } from 'src/role/entities/role.entity';
 import { User } from './entities/user.entity';
@@ -26,11 +26,12 @@ export class UserService {
   constructor(
     private readonly hashingService: HashingService,
     @InjectRepository(User) private readonly userRepository: Repository<User>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async signUp(signUpDto: SignUpDto) {
     const [message, error] = await safeError(
-      runInTransaction(async (manager: EntityManager) => {
+      runInTransaction(this.dataSource,async (manager: EntityManager) => {
         const roleRepository = manager.getRepository(Role);
         const [regularRole, _error] = await safeError(
           roleRepository.findOne({
@@ -80,7 +81,7 @@ export class UserService {
 
   async signUpUser(signUpUserDto: SignUpUserDto) {
     const [message, error] = await safeError(
-      runInTransaction(async (manager: EntityManager) => {
+      runInTransaction(this.dataSource, async (manager: EntityManager) => {
         const userRepository = manager.getRepository(User);
         const existingUser = await userRepository.findOne({
           where: { email: signUpUserDto.email },
@@ -152,7 +153,7 @@ export class UserService {
     }
 
     if (query.search) {
-      applySearch(qb, query.search, UserSearchableFields);
+      applySearch(qb, query.search, UserSearchableFields, 'user');
     }
 
     if (query.onlyActive === Status.FALSE) {
