@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: name
     volumes:
-      - test-data:/var/lib/postgresql/data
+      - test-data:/var/lib/postgresql/18/data
 
   redis:
     image: redis

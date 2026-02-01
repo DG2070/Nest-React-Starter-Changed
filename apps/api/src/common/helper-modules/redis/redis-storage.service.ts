@@ -21,6 +21,7 @@ export class RedisStorageService
     this.redishClient = new Redis({
       host: this.redisConfiguration.host,
       port: this.redisConfiguration.port,
+      lazyConnect: this.redisConfiguration.lazyConnect,
     });
   }
 
